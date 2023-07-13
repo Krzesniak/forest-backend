@@ -1,0 +1,43 @@
+
+spring:
+  application:
+    name: api-gateway
+  config:
+    import: "optional:configserver:http://localhost:8888"
+  cloud:
+    gateway:
+      globalcors:
+        corsConfigurations:
+          '[/**]':
+            allowedOrigins: "*"
+            allowedHeaders:
+              - content-type
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+      routes:
+        - id: TERRAIN-CONFIGURATION-SERVICE
+          uri: lb://TERRAIN-CONFIGURATION-SERVICE
+          predicates:
+            - Path=/configurations/**
+        - id: SIMULATION-SERVICE
+          uri: lb://SIMULATION-SERVICE
+          predicates:
+            - Path=/simulations/**
+        - id: department-service
+          uri: lb://department-service/
+          predicates:
+            - Path=/department/**
+management:
+  endpoint:
+    gateway:
+      enabled: true
+
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+
+
