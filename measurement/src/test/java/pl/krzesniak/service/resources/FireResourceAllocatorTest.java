@@ -535,6 +535,64 @@ class FireResourceAllocatorTest {
 
     }
 
+    @Test
+    void computeFireAllocation_WhenTwoFireZoneIsFoundMultipleTimes_NotFireControllerCountEnoughThenAllocateCauseOneHasFinishedJob() {
+        //given
+        agentDashboard.setFirefighterAgents(limitFirefightersCount(15));
+
+        board[4][4].setFireParameter(new FireParameter(true, false, 0, convertToForestFireState(0.51), "", 0.51));
+        board[4][5].setFireParameter(new FireParameter(true, false, 0, convertToForestFireState(1.6), "", 1.6));
+        board[4][6].setFireParameter(new FireParameter(true, false, 0, convertToForestFireState(5.6), "", 5.6));
+        var burnedPixels1 = new HashSet<>(Arrays.asList(board[4][4], board[4][5], board[4][6]));
+
+        board[7][7].setFireParameter(new FireParameter(true, false, 0, convertToForestFireState(0.51), "", 0.51));
+        board[7][8].setFireParameter(new FireParameter(true, false, 0, convertToForestFireState(0.6), "", 0.6));
+        board[7][9].setFireParameter(new FireParameter(true, false, 0, convertToForestFireState(5.6), "", 5.6));
+        var burnedPixels2 = new HashSet<>(Arrays.asList(board[7][7], board[7][8], board[7][9]));
+
+        String firstId = "4:4";
+        String secondId = "7:7";
+
+        Map<String, Set<ForestPixel>> map = new HashMap<>(Map.of(firstId, burnedPixels1, secondId, burnedPixels2));
+
+        //when
+        fireResourceAllocator.computeFireAllocation(map);
+        board[4][4].setFireParameter(new FireParameter(true, false, 0, convertToForestFireState(1.51), "", 1.51));
+        board[7][7].setFireParameter(new FireParameter(true, false, 0, convertToForestFireState(1.51), "", 5.51));
+        fireResourceAllocator.computeFireAllocation(map);
+        board[4][4].setFireParameter(new FireParameter(true, false, 0, convertToForestFireState(2.51), "", 2.51));
+        board[7][7].setFireParameter(new FireParameter(true, false, 0, convertToForestFireState(2.51), "", 5.51));
+
+        fireResourceAllocator.computeFireAllocation(map);
+        board[4][4].setFireParameter(new FireParameter(true, false, 0, convertToForestFireState(5.512), "", 5.512));
+        board[7][7].setFireParameter(new FireParameter(true, false, 0, convertToForestFireState(5.51), "", 5.51));
+
+        fireResourceAllocator.computeFireAllocation(map);
+        board[4][5].setFireParameter(new FireParameter(true, false, 0, convertToForestFireState(2.51), "", 2.51));
+        board[7][8].setFireParameter(new FireParameter(true, false, 0, convertToForestFireState(2.51), "", 5.51));
+
+        var result = fireResourceAllocator.computeFireAllocation(map);
+
+        assertEquals(11, result.get(firstId).getOptimalFireFighterCount());
+        assertEquals(7, result.get(firstId).getFirefightersCount());
+        assertEquals(YES, result.get(firstId).getAdditionalResourceNeeded());
+        assertEquals(11, result.get(firstId).getOptimalFireFighterCount());
+        assertEquals(8, result.get(secondId).getFirefightersCount());
+        assertEquals(YES, result.get(firstId).getAdditionalResourceNeeded());
+        assertEquals(3, getNonBusyFireControllerAgents());
+        assertEquals(0, getNonBusyFirefighters());
+
+        agentDashboard.getFirefighterAgents().stream().filter(FirefighterAgent::isBusy).limit(7).forEach(firefighterAgent -> firefighterAgent.setBusy(false));
+
+        map.remove("7:7");
+         result = fireResourceAllocator.computeFireAllocation(map);
+        assertEquals(11, result.get(firstId).getOptimalFireFighterCount());
+        assertEquals(11, result.get(firstId).getFirefightersCount());
+        assertEquals(NO, result.get(firstId).getAdditionalResourceNeeded());
+
+
+    }
+
     private List<FirefighterAgent> limitFirefightersCount(int i) {
         return agentDashboard.getFirefighterAgents().stream().limit(i).collect(Collectors.toList());
     }
