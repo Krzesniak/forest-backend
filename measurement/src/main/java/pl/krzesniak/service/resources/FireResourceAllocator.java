@@ -1,10 +1,9 @@
 package pl.krzesniak.service.resources;
 
+import lombok.Data;
 import org.springframework.stereotype.Service;
 import pl.krzesniak.exception.ForestPixelNotFoundException;
 import pl.krzesniak.model.ForestPixel;
-import pl.krzesniak.model.agents.FireControllerAgent;
-import pl.krzesniak.model.agents.FirefighterAgent;
 import pl.krzesniak.model.enums.ForestFireState;
 import pl.krzesniak.service.AgentDashboard;
 
@@ -16,11 +15,12 @@ import static java.util.function.Predicate.not;
 import static pl.krzesniak.service.resources.AdditionalResourceNeeded.*;
 
 @Service
+@Data
 public class FireResourceAllocator {
 
     public static final int MINIMUM_VALUE_OF_REALLOCATION = 4;
     private final Map<ForestFireState, Integer> fireStateToFirefightersCount;
-    private final Map<String, List<FireResourceMetadata>> idToFireInformation;
+    private Map<String, List<FireResourceMetadata>> idToFireInformation;
     private final AgentDashboard agentDashboard;
 
     public FireResourceAllocator(AgentDashboard agentDashboard) {
@@ -37,151 +37,130 @@ public class FireResourceAllocator {
     }
 
 
-    public HashMap<String, FireResourceMetadata> computeFireAllocation(Map<String, Set<ForestPixel>> burningPixels) {
-        List<FireResourceMetadata> updatedFireResourceMetadata = burningPixels.entrySet()
-                .stream()
-                .map(this::createFireResourceMetadata)
-                .toList();
+    public Map<String, FireResourceMetadata> computeFireAllocation(Map<String, Set<ForestPixel>> burningPixels) {
+        List<FireResourceMetadata> updatedFireResourceMetadata = createFireResourceData(burningPixels);
+        clearExtinguishedZoneIds(updatedFireResourceMetadata);
+        int freeFirefightersCount = agentDashboard.getFreeFirefightersCount();
+        int freeFireControllerAgentCount = agentDashboard.calculateFreeFireControllerAgentCount();
 
-        Set<String> idsNeededMoreResource = updatedFireResourceMetadata.stream()
-                .filter(resource -> resource.getAdditionalResourceNeeded() == YES)
-                .map(FireResourceMetadata::getId)
-                .collect(Collectors.toSet());
+        if (isNeededMoreResourceForAnyCurrentlyExtinguishedFireZone(updatedFireResourceMetadata)) {
 
-        List<FirefighterAgent> freeFirefighters = getFreeFirefighters();
-        int freeFirefightersCount = freeFirefighters.size();
+            List<FireResourceMetadata> updatedFireResourceMetadataOnlyBeingExtinguished = getFireResourceOnlyBeingExtinguished(updatedFireResourceMetadata);
+            var priorityCalculator = ResourcePriorityCalculator.
+                    calculatePriorityAndAdditionalResources(updatedFireResourceMetadataOnlyBeingExtinguished, idToFireInformation);
 
-        if (!idsNeededMoreResource.isEmpty()) {
-
-            List<FireResourceMetadata> updatedFireResourceMetadataOnlyBeingExtinguished = updatedFireResourceMetadata.stream()
-                    .filter(FireResourceMetadata::isBeingExtinguished)
-                    .collect(Collectors.toList());
-
-            double allDangerousValue = updatedFireResourceMetadataOnlyBeingExtinguished.stream()
-                    .map(FireResourceMetadata::getDangerousValue)
-                    .mapToDouble(val -> val)
-                    .sum();
-
-            Map<String, Double> idToPriority = updatedFireResourceMetadataOnlyBeingExtinguished.stream()
-                    .collect(Collectors.toMap(FireResourceMetadata::getId, resource -> resource.getDangerousValue() / allDangerousValue));
-
-            Map<String, Integer> idToNeededAdditionalResources = updatedFireResourceMetadataOnlyBeingExtinguished.stream()
-                    .collect(Collectors.toMap(FireResourceMetadata::getId, this::calculateNeededAdditionalResource));
-
-            idToPriority.entrySet()
+            priorityCalculator.fireZoneIdToPriority().entrySet()
                     .stream()
                     .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
                     .forEach(entry -> {
-                        int additionalNeededResourceCount = idToNeededAdditionalResources.get(entry.getKey());
-                        int availableResource = (int) (freeFirefightersCount * entry.getValue());
-                        int addedResourceCount = Math.min(availableResource, additionalNeededResourceCount);
+                        int addedResourceCount = Math.max(0,calculateAddedFirefightersCount(freeFirefightersCount, priorityCalculator, entry));
+                        agentDashboard.assignFirefightersToFireZone(addedResourceCount, entry.getKey());
 
-                        for (int i = 0; i < addedResourceCount && !freeFirefighters.isEmpty(); i++) {
-                            FirefighterAgent firefighterAgent = freeFirefighters.get(0);
-                            firefighterAgent.setBusy(true);
-                            freeFirefighters.remove(0);
-                        }
-                        FireResourceMetadata fireResourceMetadata = updatedFireResourceMetadataOnlyBeingExtinguished.stream()
+                        updatedFireResourceMetadataOnlyBeingExtinguished.stream()
                                 .filter(resource -> resource.getId().equals(entry.getKey()))
-                                .peek(resource -> {
-                                    int firefightersCount = getLastFirefightersCount(resource) + addedResourceCount;
-                                    resource.setFirefightersCount(firefightersCount);
-                                    if (firefightersCount == resource.getOptimalFireFighterCount())
-                                        resource.setAdditionalResourceNeeded(NO);
-                                    else resource.setAdditionalResourceNeeded(YES);
-                                })
-                                .findFirst()
-                                .orElseThrow(ForestPixelNotFoundException::new);
-
-
+                                .forEach(resource -> allocateFireFightersCount(getLastFirefightersCount(resource), addedResourceCount, resource));
                     });
 
-            updatedFireResourceMetadata.stream()
-                    .filter(resource -> resource.getAdditionalResourceNeeded() == YES)
-                    .sorted(Comparator.comparing(FireResourceMetadata::getDangerousValue).reversed())
-                    .limit(1)
-                    .findFirst()
-                    .ifPresent(fireResourceMetadata -> {
-                        int firefightersCount = fireResourceMetadata.getFirefightersCount() + getFreeFirefighters().size();
-                        fireResourceMetadata.setFirefightersCount(firefightersCount);
-                        if (firefightersCount == fireResourceMetadata.getOptimalFireFighterCount())
-                            fireResourceMetadata.setAdditionalResourceNeeded(NO);
-                        else fireResourceMetadata.setAdditionalResourceNeeded(YES);
-                        freeFirefighters.forEach(firefighterAgent -> firefighterAgent.setBusy(true));
-                    });
-
+            assignTheRestOfRemainingResourcesToTheMostDangerousFireZone(updatedFireResourceMetadata);
         }
         addFireResourceMetadataOnlyForZonesBeingExtinguished(updatedFireResourceMetadata);
-        long freeFireControllerAgentCount = calculateFreeFireControllerAgentCount();
+        List<FireResourceMetadata> fireResourceMetadataNewFireZones = getFireResourceForNewFireZones(updatedFireResourceMetadata);
 
-        long newFireZonesCount = updatedFireResourceMetadata.stream()
-                .filter(not(FireResourceMetadata::isBeingExtinguished))
-                .count();
-        if (freeFireControllerAgentCount <= 0 || newFireZonesCount == 0) return getTheLatestFireResourceData();
+        if (!isFreeFireControllerAgentAndNewFireZones(freeFireControllerAgentCount, fireResourceMetadataNewFireZones)) return getTheLatestFireResourceData();
+        var priorityCalculator = ResourcePriorityCalculator.calculatePriorityAndAdditionalResources(fireResourceMetadataNewFireZones, idToFireInformation);
 
-        double allDangerousValue = updatedFireResourceMetadata.stream()
-                .filter(not(FireResourceMetadata::isBeingExtinguished))
-                .map(FireResourceMetadata::getDangerousValue)
-                .mapToDouble(val -> val)
-                .sum();
-
-        Map<String, Double> idToPriority = updatedFireResourceMetadata.stream()
-                .filter(not(FireResourceMetadata::isBeingExtinguished))
-                .collect(Collectors.toMap(FireResourceMetadata::getId, resource -> resource.getDangerousValue() / allDangerousValue));
-
-        Map<String, Integer> idToNeededAdditionalResources = updatedFireResourceMetadata.stream()
-                .filter(not(FireResourceMetadata::isBeingExtinguished))
-                .collect(Collectors.toMap(FireResourceMetadata::getId, FireResourceMetadata::getOptimalFireFighterCount));
-
-        idToPriority.entrySet()
+        priorityCalculator.fireZoneIdToPriority().entrySet()
                 .stream()
                 .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
                 .limit(freeFireControllerAgentCount)
                 .forEach(entry -> {
-                    int additionalNeededResourceCount = idToNeededAdditionalResources.get(entry.getKey());
-                    int availableResource = (int) (freeFirefightersCount * entry.getValue());
-                    int addedResourceCount = Math.min(availableResource, additionalNeededResourceCount);
-
-                    for (int i = 0; i < addedResourceCount && !freeFirefighters.isEmpty(); i++) {
-                        FirefighterAgent firefighterAgent = freeFirefighters.get(0);
-                        firefighterAgent.setBusy(true);
-                        freeFirefighters.remove(0);
-                    }
+                    int addedResourceCount = Math.max(0, calculateAddedFirefightersCount(freeFirefightersCount, priorityCalculator, entry));
+                    agentDashboard.assignFirefightersToFireZone(addedResourceCount, entry.getKey());
                     FireResourceMetadata fireResourceMetadata = updatedFireResourceMetadata.stream()
                             .filter(resource -> resource.getId().equals(entry.getKey()))
-                            .peek(resource -> {
-                                int firefightersCount = getLastFirefightersCount(resource) + addedResourceCount;
-                                resource.setFirefightersCount(firefightersCount);
-                                if (firefightersCount == resource.getOptimalFireFighterCount())
-                                    resource.setAdditionalResourceNeeded(NO);
-                                else resource.setAdditionalResourceNeeded(YES);
-                            })
+                            .peek(resource -> allocateFireFightersCount(getLastFirefightersCount(resource), addedResourceCount, resource))
                             .findFirst()
                             .orElseThrow(ForestPixelNotFoundException::new);
+
                     this.idToFireInformation.put(entry.getKey(), new ArrayList<>((Collections.singletonList(fireResourceMetadata))));
-                    this.agentDashboard.getFireControllerAgents()
-                            .stream()
-                            .filter(not(FireControllerAgent::isBusy))
-                            .findFirst()
-                            .ifPresent(agent -> agent.setBusy(true));
+                    agentDashboard.assignFireControllerAgentToFireZone(entry.getKey());
                 });
 
+        assignTheRestOfRemainingResourcesToTheMostDangerousFireZone(updatedFireResourceMetadata);
+        return getTheLatestFireResourceData();
+
+    }
+
+    private void clearExtinguishedZoneIds(List<FireResourceMetadata> updatedFireResourceMetadata) {
+        Set<String> currentlyExtinguishedZonesId = updatedFireResourceMetadata.stream()
+                .map(FireResourceMetadata::getId)
+                .collect(Collectors.toSet());
+        idToFireInformation = idToFireInformation.entrySet()
+                .stream()
+                .filter(entry -> currentlyExtinguishedZonesId.contains(entry.getKey()))
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+    }
+
+    private static List<FireResourceMetadata> getFireResourceForNewFireZones(List<FireResourceMetadata> updatedFireResourceMetadata) {
+        return updatedFireResourceMetadata.stream()
+                .filter(not(FireResourceMetadata::isBeingExtinguished))
+                .toList();
+    }
+
+    private static List<FireResourceMetadata> getFireResourceOnlyBeingExtinguished(List<FireResourceMetadata> updatedFireResourceMetadata) {
+        return updatedFireResourceMetadata.stream()
+                .filter(FireResourceMetadata::isBeingExtinguished)
+                .toList();
+    }
+
+    private static int calculateAddedFirefightersCount(int freeFirefightersCount, ResourcePriorityCalculator resourcePriorityCalculator, Map.Entry<String, Double> entry) {
+        int additionalNeededResourceCount = resourcePriorityCalculator.fireZoneIdToNeededAdditionalResources().get(entry.getKey());
+        int availableResource = (int) (freeFirefightersCount * entry.getValue());
+        return Math.min(availableResource, additionalNeededResourceCount);
+    }
+
+    private static boolean isFreeFireControllerAgentAndNewFireZones(long freeFireControllerAgentCount, List<FireResourceMetadata> fireResourceMetadataNewFireZones) {
+        return freeFireControllerAgentCount > 0 && fireResourceMetadataNewFireZones.size() != 0;
+    }
+
+    private void allocateFireFightersCount(int fireFightersCount, long addedResourceCount, FireResourceMetadata resourceMetadata) {
+        int firefightersCount = (int) (fireFightersCount + addedResourceCount);
+        resourceMetadata.setFirefightersCount(firefightersCount);
+        if (firefightersCount >= resourceMetadata.getOptimalFireFighterCount())
+            resourceMetadata.setAdditionalResourceNeeded(NO);
+        else resourceMetadata.setAdditionalResourceNeeded(YES);
+    }
+
+    private void assignTheRestOfRemainingResourcesToTheMostDangerousFireZone(List<FireResourceMetadata> updatedFireResourceMetadata) {
         updatedFireResourceMetadata.stream()
                 .filter(resource -> resource.getAdditionalResourceNeeded() == YES)
                 .sorted(Comparator.comparing(FireResourceMetadata::getDangerousValue).reversed())
                 .limit(1)
                 .findFirst()
                 .ifPresent(fireResourceMetadata -> {
-                    int firefightersCount = fireResourceMetadata.getFirefightersCount() + getFreeFirefighters().size();
-                    fireResourceMetadata.setFirefightersCount(firefightersCount);
-                    if (firefightersCount == fireResourceMetadata.getOptimalFireFighterCount())
-                        fireResourceMetadata.setAdditionalResourceNeeded(NO);
-                    else fireResourceMetadata.setAdditionalResourceNeeded(YES);
-                    freeFirefighters.forEach(firefighterAgent -> firefighterAgent.setBusy(true));
+                    allocateFireFightersCount(fireResourceMetadata.getFirefightersCount(), agentDashboard.getFreeFirefightersCount(), fireResourceMetadata);
+                    agentDashboard.assignFirefightersToFireZone(agentDashboard.getFreeFirefightersCount(), fireResourceMetadata.getId());
                 });
+    }
 
-        return getTheLatestFireResourceData();
+    private boolean isNeededMoreResourceForAnyCurrentlyExtinguishedFireZone(List<FireResourceMetadata> updatedFireResourceMetadata) {
+        return updatedFireResourceMetadata.stream()
+                .anyMatch(resource -> resource.getAdditionalResourceNeeded() == YES);
+    }
 
+    private List<FireResourceMetadata> createFireResourceData(Map<String, Set<ForestPixel>> burningPixels) {
+        return burningPixels.entrySet()
+                .stream()
+                .map(this::createFireResourceMetadata)
+                .toList();
+    }
+
+    private FireResourceMetadata createFireResourceMetadata(Map.Entry<String, Set<ForestPixel>> entry) {
+        double fireSpeed = calculateFireSpeed(entry.getValue());
+        int optimalFirefightersCount = calculateOptimalFirefightersCount(entry.getValue());
+        AdditionalResourceNeeded additionalResourceNeeded = areNeededAdditionalResources(idToFireInformation.get(entry.getKey()), optimalFirefightersCount);
+        var previouslySetFireFightersCount = getPreviouslySetFireFightersCount(idToFireInformation.get(entry.getKey()));
+        return new FireResourceMetadata(entry.getKey(), previouslySetFireFightersCount, optimalFirefightersCount, fireSpeed, additionalResourceNeeded, entry.getValue());
     }
 
     private void addFireResourceMetadataOnlyForZonesBeingExtinguished(List<FireResourceMetadata> fireResourceMetadata) {
@@ -197,10 +176,6 @@ public class FireResourceAllocator {
                         HashMap::putAll);
     }
 
-    private int calculateNeededAdditionalResource(FireResourceMetadata resource) {
-        int lastFirefightersCount = getLastFirefightersCount(resource);
-        return resource.getOptimalFireFighterCount() - lastFirefightersCount;
-    }
 
     private int getLastFirefightersCount(FireResourceMetadata resource) {
         List<FireResourceMetadata> resourceMetadata = idToFireInformation.get(resource.getId());
@@ -209,20 +184,8 @@ public class FireResourceAllocator {
         return lastResourceMetadata.getFirefightersCount();
     }
 
-    private List<FirefighterAgent> getFreeFirefighters() {
-        return agentDashboard.getFirefighterAgents()
-                .stream()
-                .filter(not(FirefighterAgent::isBusy))
-                .collect(Collectors.toList());
-    }
 
-    private FireResourceMetadata createFireResourceMetadata(Map.Entry<String, Set<ForestPixel>> entry) {
-        double fireSpeed = calculateFireSpeed(entry.getValue());
-        int optimalFirefightersCount = calculateOptimalFirefightersCount(entry.getValue());
-        AdditionalResourceNeeded additionalResourceNeeded = areNeededAdditionalResources(idToFireInformation.get(entry.getKey()), optimalFirefightersCount);
-        var previouslySetFireFightersCount = getPreviouslySetFireFightersCount(idToFireInformation.get(entry.getKey()));
-        return new FireResourceMetadata(entry.getKey(), previouslySetFireFightersCount, optimalFirefightersCount, fireSpeed, additionalResourceNeeded);
-    }
+
 
     public int getPreviouslySetFireFightersCount(List<FireResourceMetadata> statistics) {
         if (statistics == null || statistics.isEmpty()) return 0;
@@ -253,7 +216,7 @@ public class FireResourceAllocator {
     private double calculateFireSpeed(Set<ForestPixel> burningPixels) {
         return burningPixels
                 .stream()
-                .map(pixel -> pixel.getFireParameter().getFireSpeedSpreed())
+                .map(pixel -> pixel.getFireParameter().getFireSpeed())
                 .mapToDouble(value -> value)
                 .sum();
     }
@@ -265,18 +228,6 @@ public class FireResourceAllocator {
                 .mapToInt(value -> value)
                 .sum();
     }
-
-
-    public long calculateFreeFireControllerAgentCount() {
-        return agentDashboard.getFireControllerAgents()
-                .stream()
-                .filter(not(FireControllerAgent::isBusy))
-                .count();
-    }
-
-
-    //TODO check availability of FireControllerAgent
-    //TODO check limit of firefgihters
 
 
 }

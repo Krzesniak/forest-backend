@@ -18,7 +18,8 @@ import static java.util.function.Predicate.not;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static pl.krzesniak.model.enums.ForestFireState.*;
-import static pl.krzesniak.service.resources.AdditionalResourceNeeded.*;
+import static pl.krzesniak.service.resources.AdditionalResourceNeeded.NO;
+import static pl.krzesniak.service.resources.AdditionalResourceNeeded.YES;
 
 class FireResourceAllocatorTest {
     public static final int BOARD_SIZE = 30;
@@ -32,10 +33,7 @@ class FireResourceAllocatorTest {
     void setup() {
         for (int i = 0; i < BOARD_SIZE; i++) {
             for (int j = 0; j < BOARD_SIZE; j++) {
-                board[i][j] = ForestPixel.builder()
-                        .id(i + ":" + j)
-                        .fireParameter(new FireParameter(false, false, 0, ForestFireState.NONE, "", 0))
-                        .build();
+                board[i][j] = ForestPixel.builder().id(i + ":" + j).fireParameter(new FireParameter(false, false, 0, ForestFireState.NONE, "", 0)).build();
             }
         }
         AgentResourcesRequest agentResourcesRequest = new AgentResourcesRequest(board, 3, 5, 60);
@@ -58,9 +56,10 @@ class FireResourceAllocatorTest {
         }
         var map = Map.of("4:4", burnedPixels);
         //when
-        HashMap<String, FireResourceMetadata> result = fireResourceAllocator.computeFireAllocation(map);
+        Map<String, FireResourceMetadata> result = fireResourceAllocator.computeFireAllocation(map);
         assertEquals(22, result.get("4:4").getOptimalFireFighterCount());
         assertEquals(22, result.get("4:4").getFirefightersCount());
+        assertEquals(22, getFireFighterAssignedToFireZoneId("4:4"));
         assertEquals(NO, result.get("4:4").getAdditionalResourceNeeded());
         assertEquals(getNonBusyFirefighters(), 38);
         assertEquals(getNonBusyFireControllerAgents(), 4);
@@ -97,12 +96,14 @@ class FireResourceAllocatorTest {
         String secondId = "15:17";
         var map = Map.of(firstId, burnedPixels, secondId, burnedPixels2);
         //when
-        HashMap<String, FireResourceMetadata> result = fireResourceAllocator.computeFireAllocation(map);
+        Map<String, FireResourceMetadata> result = fireResourceAllocator.computeFireAllocation(map);
         assertEquals(22, result.get(firstId).getOptimalFireFighterCount());
         assertEquals(22, result.get(firstId).getFirefightersCount());
+        assertEquals(22, getFireFighterAssignedToFireZoneId(firstId));
         assertEquals(NO, result.get(firstId).getAdditionalResourceNeeded());
         assertEquals(8, result.get(secondId).getOptimalFireFighterCount());
         assertEquals(8, result.get(secondId).getFirefightersCount());
+        assertEquals(8, getFireFighterAssignedToFireZoneId(secondId));
         assertEquals(NO, result.get(secondId).getAdditionalResourceNeeded());
         assertEquals(30, getNonBusyFirefighters());
         assertEquals(3, getNonBusyFireControllerAgents());
@@ -124,9 +125,10 @@ class FireResourceAllocatorTest {
         }
         var map = Map.of("4:4", burnedPixels);
         //when
-        HashMap<String, FireResourceMetadata> result = fireResourceAllocator.computeFireAllocation(map);
+        Map<String, FireResourceMetadata> result = fireResourceAllocator.computeFireAllocation(map);
         assertEquals(62, result.get("4:4").getOptimalFireFighterCount());
         assertEquals(60, result.get("4:4").getFirefightersCount());
+        assertEquals(60, getFireFighterAssignedToFireZoneId("4:4"));
         assertEquals(AdditionalResourceNeeded.YES, result.get("4:4").getAdditionalResourceNeeded());
         assertEquals(0, getNonBusyFirefighters());
         assertEquals(4, getNonBusyFireControllerAgents());
@@ -163,12 +165,14 @@ class FireResourceAllocatorTest {
         String secondId = "15:17";
         var map = Map.of(firstId, burnedPixels, secondId, burnedPixels2);
         //when
-        HashMap<String, FireResourceMetadata> result = fireResourceAllocator.computeFireAllocation(map);
+        Map<String, FireResourceMetadata> result = fireResourceAllocator.computeFireAllocation(map);
         assertEquals(result.get(firstId).getOptimalFireFighterCount(), 62);
         assertEquals(result.get(firstId).getFirefightersCount(), 55);
         assertEquals(result.get(firstId).getAdditionalResourceNeeded(), AdditionalResourceNeeded.YES);
+        assertEquals(55, getFireFighterAssignedToFireZoneId(firstId));
         assertEquals(result.get(secondId).getOptimalFireFighterCount(), 8);
         assertEquals(result.get(secondId).getFirefightersCount(), 5);
+        assertEquals(5, getFireFighterAssignedToFireZoneId(secondId));
         assertEquals(result.get(secondId).getAdditionalResourceNeeded(), AdditionalResourceNeeded.YES);
         assertEquals(0, getNonBusyFirefighters());
         assertEquals(3, getNonBusyFireControllerAgents());
@@ -198,17 +202,20 @@ class FireResourceAllocatorTest {
         Map<String, Set<ForestPixel>> map = Map.of(firstId, burnedPixels1, secondId, burnedPixels2, thirdId, burnedPixels3);
 
         //when
-        HashMap<String, FireResourceMetadata> result = fireResourceAllocator.computeFireAllocation(map);
+        Map<String, FireResourceMetadata> result = fireResourceAllocator.computeFireAllocation(map);
 
         assertEquals(6, result.get(firstId).getOptimalFireFighterCount());
         assertEquals(6, result.get(firstId).getFirefightersCount());
+        assertEquals(6, getFireFighterAssignedToFireZoneId(firstId));
         assertEquals(NO, result.get(firstId).getAdditionalResourceNeeded());
         assertEquals(6, result.get(secondId).getOptimalFireFighterCount());
         assertEquals(6, result.get(secondId).getFirefightersCount());
+        assertEquals(6, getFireFighterAssignedToFireZoneId(secondId));
         assertEquals(NO, result.get(secondId).getAdditionalResourceNeeded());
         assertEquals(NO, result.get(thirdId).getAdditionalResourceNeeded());
         assertEquals(6, result.get(thirdId).getOptimalFireFighterCount());
         assertEquals(6, result.get(thirdId).getFirefightersCount());
+        assertEquals(6, getFireFighterAssignedToFireZoneId(thirdId));
         assertEquals(42, getNonBusyFirefighters());
         assertEquals(2, getNonBusyFireControllerAgents());
 
@@ -237,17 +244,20 @@ class FireResourceAllocatorTest {
         Map<String, Set<ForestPixel>> map = Map.of(firstId, burnedPixels1, secondId, burnedPixels2, thirdId, burnedPixels3);
 
         //when
-        HashMap<String, FireResourceMetadata> result = fireResourceAllocator.computeFireAllocation(map);
+        Map<String, FireResourceMetadata> result = fireResourceAllocator.computeFireAllocation(map);
 
         assertEquals(8, result.get(firstId).getOptimalFireFighterCount());
         assertEquals(8, result.get(firstId).getFirefightersCount());
+        assertEquals(8, getFireFighterAssignedToFireZoneId(firstId));
         assertEquals(NO, result.get(firstId).getAdditionalResourceNeeded());
         assertEquals(8, result.get(secondId).getOptimalFireFighterCount());
         assertEquals(6, result.get(secondId).getFirefightersCount());
+        assertEquals(6, getFireFighterAssignedToFireZoneId(secondId));
         assertEquals(YES, result.get(secondId).getAdditionalResourceNeeded());
         assertEquals(YES, result.get(thirdId).getAdditionalResourceNeeded());
         assertEquals(8, result.get(thirdId).getOptimalFireFighterCount());
         assertEquals(6, result.get(thirdId).getFirefightersCount());
+        assertEquals(6, getFireFighterAssignedToFireZoneId(thirdId));
         assertEquals(0, getNonBusyFirefighters());
         assertEquals(2, getNonBusyFireControllerAgents());
 
@@ -267,10 +277,11 @@ class FireResourceAllocatorTest {
         Map<String, Set<ForestPixel>> map = Map.of(firstId, burnedPixels1);
 
         //when
-        HashMap<String, FireResourceMetadata> result = fireResourceAllocator.computeFireAllocation(map);
+        Map<String, FireResourceMetadata> result = fireResourceAllocator.computeFireAllocation(map);
 
         assertNull(result.get(firstId));
         assertEquals(60, getNonBusyFirefighters());
+        assertEquals(0, getFireFighterAssignedToFireZoneId(firstId));
         assertEquals(0, getNonBusyFireControllerAgents());
 
     }
@@ -294,11 +305,12 @@ class FireResourceAllocatorTest {
         Map<String, Set<ForestPixel>> map = Map.of(firstId, burnedPixels1, secondId, burnedPixels2);
 
         //when
-        HashMap<String, FireResourceMetadata> result = fireResourceAllocator.computeFireAllocation(map);
+        Map<String, FireResourceMetadata> result = fireResourceAllocator.computeFireAllocation(map);
 
         assertNull(result.get(firstId));
         assertEquals(8, result.get(secondId).getOptimalFireFighterCount());
         assertEquals(8, result.get(secondId).getFirefightersCount());
+        assertEquals(8, getFireFighterAssignedToFireZoneId(secondId));
         assertEquals(NO, result.get(secondId).getAdditionalResourceNeeded());
         assertEquals(52, getNonBusyFirefighters());
         assertEquals(0, getNonBusyFireControllerAgents());
@@ -313,7 +325,7 @@ class FireResourceAllocatorTest {
         board[4][4].setFireParameter(new FireParameter(true, false, 0, convertToForestFireState(0.51), "", 0.51));
         board[4][5].setFireParameter(new FireParameter(true, false, 0, convertToForestFireState(1.6), "", 1.6));
         var burnedPixels1 = new HashSet<>(Arrays.asList(board[4][4], board[4][5]));
-       
+
         String firstId = "4:4";
 
 
@@ -333,6 +345,7 @@ class FireResourceAllocatorTest {
 
         assertEquals(7, result.get(firstId).getOptimalFireFighterCount());
         assertEquals(7, result.get(firstId).getFirefightersCount());
+        assertEquals(7, getFireFighterAssignedToFireZoneId(firstId));
         assertEquals(NO, result.get(firstId).getAdditionalResourceNeeded());
         assertEquals(0, getNonBusyFireControllerAgents());
         assertEquals(53, getNonBusyFirefighters());
@@ -377,9 +390,11 @@ class FireResourceAllocatorTest {
 
         assertEquals(7, result.get(firstId).getOptimalFireFighterCount());
         assertEquals(7, result.get(firstId).getFirefightersCount());
+        assertEquals(7, getFireFighterAssignedToFireZoneId(firstId));
         assertEquals(NO, result.get(firstId).getAdditionalResourceNeeded());
         assertEquals(6, result.get(secondId).getOptimalFireFighterCount());
         assertEquals(6, result.get(secondId).getFirefightersCount());
+        assertEquals(6, getFireFighterAssignedToFireZoneId(secondId));
         assertEquals(NO, result.get(secondId).getAdditionalResourceNeeded());
         assertEquals(3, getNonBusyFireControllerAgents());
         assertEquals(47, getNonBusyFirefighters());
@@ -417,9 +432,11 @@ class FireResourceAllocatorTest {
 
         assertEquals(8, result.get(firstId).getOptimalFireFighterCount());
         assertEquals(6, result.get(firstId).getFirefightersCount());
+        assertEquals(6, getFireFighterAssignedToFireZoneId(firstId));
         assertEquals(YES, result.get(firstId).getAdditionalResourceNeeded());
         assertEquals(7, result.get(secondId).getOptimalFireFighterCount());
         assertEquals(4, result.get(secondId).getFirefightersCount());
+        assertEquals(4, getFireFighterAssignedToFireZoneId(secondId));
         assertEquals(YES, result.get(secondId).getAdditionalResourceNeeded());
         assertEquals(3, getNonBusyFireControllerAgents());
         assertEquals(0, getNonBusyFirefighters());
@@ -476,12 +493,15 @@ class FireResourceAllocatorTest {
 
         assertEquals(8, result.get(firstId).getOptimalFireFighterCount());
         assertEquals(8, result.get(firstId).getFirefightersCount());
+        assertEquals(8, getFireFighterAssignedToFireZoneId(firstId));
         assertEquals(NO, result.get(firstId).getAdditionalResourceNeeded());
         assertEquals(8, result.get(secondId).getOptimalFireFighterCount());
         assertEquals(6, result.get(secondId).getFirefightersCount());
+        assertEquals(6, getFireFighterAssignedToFireZoneId(secondId));
         assertEquals(YES, result.get(secondId).getAdditionalResourceNeeded());
         assertEquals(8, result.get(thirdId).getOptimalFireFighterCount());
         assertEquals(6, result.get(thirdId).getFirefightersCount());
+        assertEquals(6, getFireFighterAssignedToFireZoneId(thirdId));
         assertEquals(YES, result.get(thirdId).getAdditionalResourceNeeded());
         assertEquals(2, getNonBusyFireControllerAgents());
         assertEquals(0, getNonBusyFirefighters());
@@ -528,6 +548,7 @@ class FireResourceAllocatorTest {
 
         assertEquals(7, result.get(firstId).getOptimalFireFighterCount());
         assertEquals(7, result.get(firstId).getFirefightersCount());
+        assertEquals(7, getFireFighterAssignedToFireZoneId(firstId));
         assertEquals(NO, result.get(firstId).getAdditionalResourceNeeded());
         assertEquals(0, getNonBusyFireControllerAgents());
         assertEquals(53, getNonBusyFirefighters());
@@ -575,19 +596,24 @@ class FireResourceAllocatorTest {
 
         assertEquals(11, result.get(firstId).getOptimalFireFighterCount());
         assertEquals(7, result.get(firstId).getFirefightersCount());
+        assertEquals(7, getFireFighterAssignedToFireZoneId(firstId));
         assertEquals(YES, result.get(firstId).getAdditionalResourceNeeded());
         assertEquals(11, result.get(firstId).getOptimalFireFighterCount());
         assertEquals(8, result.get(secondId).getFirefightersCount());
+        assertEquals(8, getFireFighterAssignedToFireZoneId(secondId));
         assertEquals(YES, result.get(firstId).getAdditionalResourceNeeded());
         assertEquals(3, getNonBusyFireControllerAgents());
         assertEquals(0, getNonBusyFirefighters());
 
-        agentDashboard.getFirefighterAgents().stream().filter(FirefighterAgent::isBusy).limit(7).forEach(firefighterAgent -> firefighterAgent.setBusy(false));
+        agentDashboard.getFirefighterAgents().stream().filter(FirefighterAgent::isBusy)
+                .filter(firefighterAgent -> firefighterAgent.getFireZoneId().equals("7:7")).limit(7).forEach(firefighterAgent -> firefighterAgent.setBusy(false));
 
         map.remove("7:7");
-         result = fireResourceAllocator.computeFireAllocation(map);
+        result = fireResourceAllocator.computeFireAllocation(map);
         assertEquals(11, result.get(firstId).getOptimalFireFighterCount());
         assertEquals(11, result.get(firstId).getFirefightersCount());
+        assertEquals(11, getFireFighterAssignedToFireZoneId(firstId));
+
         assertEquals(NO, result.get(firstId).getAdditionalResourceNeeded());
 
 
@@ -608,6 +634,13 @@ class FireResourceAllocatorTest {
 
     private long getNonBusyFireControllerAgents() {
         return agentDashboard.getFireControllerAgents().stream().filter(not(FireControllerAgent::isBusy)).count();
+    }
+
+    private long getFireFighterAssignedToFireZoneId(String zoneId) {
+        return agentDashboard.getFirefighterAgents()
+                .stream()
+                .filter(firefighterAgent -> firefighterAgent.getFireZoneId().equals(zoneId))
+                .count();
     }
 
     public ForestFireState convertToForestFireState(double fireSpeed) {

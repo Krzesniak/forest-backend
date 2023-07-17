@@ -15,9 +15,9 @@ public class FireParameter {
     private double fieldPercentageDestroyed;
     private ForestFireState forestFireState;
     private String forestFireBurnedColor;
-    private double fireSpeedSpreed;
+    private double fireSpeed;
 
     public FireParameter createCopy() {
-        return new FireParameter(isBeingBurned, isBeingExtinguished, fieldPercentageDestroyed, forestFireState, forestFireBurnedColor, fireSpeedSpreed);
+        return new FireParameter(isBeingBurned, isBeingExtinguished, fieldPercentageDestroyed, forestFireState, forestFireBurnedColor, fireSpeed);
     }
 }

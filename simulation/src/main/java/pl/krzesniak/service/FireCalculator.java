@@ -27,7 +27,7 @@ public class FireCalculator {
         double neighbourForestFireSpread = NEIGHBOUR_FIRE_COEFFICIENT * calculateFireSpreedForNeighbours(neighbours);
         double currentIterationFireSpread = ownForestFireSpread + neighbourForestFireSpread;
         if (!forestPixel.isBeingBurned()) return currentIterationFireSpread;
-        return forestPixel.getFireParameter().getFireSpeedSpreed() + NEXT_ITERATION_FIRE_COEFFICIENT * currentIterationFireSpread;
+        return forestPixel.getFireParameter().getFireSpeed() + NEXT_ITERATION_FIRE_COEFFICIENT * currentIterationFireSpread;
     }
 
     public double calculateOwnFireSpreed(ForestPixel pixel) {
@@ -56,7 +56,7 @@ public class FireCalculator {
     }
 
     public void updatePixelBurning(ForestPixel pixel, double firePixelDamage) {
-        pixel.getFireParameter().setFireSpeedSpreed(firePixelDamage);
+        pixel.getFireParameter().setFireSpeed(firePixelDamage);
         pixel.getFireParameter().setFieldPercentageDestroyed(pixel.getFireParameter().getFieldPercentageDestroyed() + firePixelDamage);
         pixel.getFireParameter().setForestFireState(convertToForestFireState(firePixelDamage));
         pixel.getFireParameter().setForestFireBurnedColor(ForestFireBurnedColor.convertBurnedFieldPercentageToColorValue(

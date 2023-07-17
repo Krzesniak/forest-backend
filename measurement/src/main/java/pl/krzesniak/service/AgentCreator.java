@@ -47,4 +47,7 @@ public class AgentCreator {
     public AnalystAgent createAnalystAgent() {
         return new AnalystAgent("1");
     }
+
+    public ExitAgent createExitAgent() { return new ExitAgent("1");
+    }
 }

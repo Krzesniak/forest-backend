@@ -22,7 +22,7 @@ public class PixelStartingBurningManager {
         pixel.getFireParameter().setFieldPercentageDestroyed(1);
         pixel.getFireParameter().setForestFireBurnedColor(ForestFireBurnedColor.LEVEL1.getRgbColorValue());
         double fireSpeed = fireCalculator.calculateOwnFireSpreed(pixel);
-        pixel.getFireParameter().setFireSpeedSpreed(fireSpeed);
+        pixel.getFireParameter().setFireSpeed(fireSpeed);
         pixel.getFireParameter().setForestFireState(fireCalculator.convertToForestFireState(fireSpeed));
     }
 
@@ -53,11 +53,11 @@ public class PixelStartingBurningManager {
     }
 
     public double calculateProbabilityOfPixelBurning(ForestPixel forestPixel) {
-        return forestPixel.getFireParameter().getFireSpeedSpreed() * 0.2;
+        return forestPixel.getFireParameter().getFireSpeed() * 0.2;
     }
 
     public boolean canNeighbourWidespreadFire(ForestPixel pixel) {
         return pixel.getFireParameter().getFieldPercentageDestroyed() > MIN_FIELD_DAMAGE_DESTROYED
-                || pixel.getFireParameter().getFireSpeedSpreed() > 4.5;
+                || pixel.getFireParameter().getFireSpeed() > 4.5;
     }
 }
